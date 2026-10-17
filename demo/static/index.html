@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Heat operator demo</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div>
+    <h1>Heat-equation neural operator</h1>
+    <p class="sub">Physics-informed DeepONet ensemble vs. finite-element ground truth</p>
+  </div>
+  <div class="status" id="statusPill"><span class="dot"></span><span id="statusText">starting…</span></div>
+</header>
+
+<!-- Training / loading overlay -->
+<div id="overlay" class="overlay">
+  <div class="overlay-card">
+    <h2 id="ovTitle">Training the operator</h2>
+    <p class="muted" id="ovSub">This only happens once. The trained weights are cached in <code>checkpoints/</code>, so the next launch starts instantly.</p>
+    <div class="bar"><div id="ovBar" class="bar-fill"></div></div>
+    <div class="ov-row"><span id="ovStage">…</span><span id="ovPct">0%</span></div>
+    <div class="ov-row muted"><span id="ovMsg"></span><span id="ovEta"></span></div>
+    <pre id="ovLog" class="log"></pre>
+    <p id="ovError" class="error" hidden></p>
+  </div>
+</div>
+
+<main class="layout">
+  <!-- ------------------------------------------------------------ controls -->
+  <aside class="controls">
+    <section class="card">
+      <h3>Initial temperature</h3>
+      <p class="hint">Drag any point up or down (click anywhere in its column). The heater end <b>x = 0</b> is fixed at 100&nbsp;°C.</p>
+      <svg id="icEditor" class="ic-editor" viewBox="0 0 330 230" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="ic-readout" id="icReadout">&nbsp;</div>
+      <label class="check"><input type="checkbox" id="brush"> Smooth brush <span class="muted">(or hold Shift)</span></label>
+      <div class="chips" id="presets">
+        <button data-p="random">🎲 Random</button>
+        <button data-p="uniform">Uniform 20°</button>
+        <button data-p="bump">Hot bump</button>
+        <button data-p="dip">Cold dip</button>
+        <button data-p="ramp">Ramp</button>
+        <button data-p="two">Two bumps</button>
+        <button data-p="smooth">Smooth</button>
+        <button data-p="jagged" title="Outside the training distribution">Jagged</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>Material</h3>
+      <div class="seg" id="modeSeg">
+        <label><input type="radio" name="mode" value="linear" checked><span>Constant α</span></label>
+        <label><input type="radio" name="mode" value="nonlinear"><span>α(T)</span></label>
+      </div>
+      <p class="hint" id="modeHint"></p>
+      <div class="slider-row">
+        <label for="alpha">α<sub>0</sub></label>
+        <output id="alphaOut"></output>
+      </div>
+      <input type="range" id="alpha" step="1e-5">
+      <div class="range-ends"><span id="alphaLo"></span><span>trained range</span><span id="alphaHi"></span></div>
+    </section>
+
+    <section class="card">
+      <h3>Time</h3>
+      <div class="slider-row">
+        <label for="tSlider">t</label>
+        <output id="tOut"></output>
+      </div>
+      <div class="play-row">
+        <button id="playBtn" class="icon-btn" title="Animate">▶</button>
+        <input type="range" id="tSlider" min="0" max="3600" step="30" value="600">
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>Error reference</h3>
+      <select id="reference">
+        <option value="fem">FEM (ground truth)</option>
+        <option value="analytical" disabled>Analytical (uniform IC only)</option>
+      </select>
+      <label class="check"><input type="checkbox" id="autorun" checked> Re-run automatically on change</label>
+      <button id="runBtn" class="primary">Run comparison</button>
+      <div id="busy" class="busy" hidden>computing…</div>
+    </section>
+  </aside>
+
+  <!-- ------------------------------------------------------------- results -->
+  <section class="results">
+    <nav class="tabs" id="tabs">
+      <button class="active" data-tab="solution">Solution</button>
+      <button data-tab="spacetime">Space–time</button>
+      <button data-tab="intervals">Error intervals</button>
+      <button data-tab="speed">Speed vs FEM</button>
+      <button data-tab="training">Training</button>
+    </nav>
+
+    <div class="panel active" id="tab-solution">
+      <div class="stats" id="stats"></div>
+      <div class="card plot-card"><div id="plotProfile" class="plot tall"></div></div>
+      <div class="card plot-card"><div id="plotErrProfile" class="plot short"></div></div>
+      <p class="note" id="refNote"></p>
+    </div>
+
+    <div class="panel" id="tab-spacetime">
+      <div class="tools"><label>Time window
+        <select id="hmWindow">
+          <option value="3600">0 – 60 min</option>
+          <option value="900">0 – 15 min</option>
+          <option value="300">0 – 5 min</option>
+        </select></label>
+        <span class="muted">Zoom in on the early transient, where most of the error lives.</span>
+      </div>
+      <div class="grid2">
+        <div class="card plot-card"><div id="hmFem" class="plot hm"></div></div>
+        <div class="card plot-card"><div id="hmOp" class="plot hm"></div></div>
+        <div class="card plot-card"><div id="hmErr" class="plot hm"></div></div>
+        <div class="card plot-card"><div id="hmStd" class="plot hm"></div></div>
+      </div>
+      <p class="note">The dotted line marks the time selected with the slider. Error = operator − reference.</p>
+    </div>
+
+    <div class="panel" id="tab-intervals">
+      <div class="stats" id="fullStats"></div>
+      <div class="grid2">
+        <div class="card plot-card"><div id="plotMatrix" class="plot mid"></div></div>
+        <div class="card plot-card"><div id="plotByX" class="plot mid"></div></div>
+        <div class="card plot-card"><div id="plotByTime" class="plot mid"></div></div>
+        <div class="card plot-card"><div id="plotCurves" class="plot mid"></div></div>
+      </div>
+    </div>
+
+    <div class="panel" id="tab-speed">
+      <div class="stats" id="speedStats"></div>
+      <div class="card plot-card"><div id="plotSpeed" class="plot mid"></div></div>
+      <div class="card prose" id="speedNotes"></div>
+    </div>
+
+    <div class="panel" id="tab-training">
+      <div class="stats" id="trainStats"></div>
+      <div class="grid2">
+        <div class="card plot-card"><div id="plotAL" class="plot mid"></div></div>
+        <div class="card prose" id="trainTable"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
