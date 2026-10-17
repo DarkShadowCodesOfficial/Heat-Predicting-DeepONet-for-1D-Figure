@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "heat-operator-demo"
+version = "0.1.0"
+description = "Physics-informed DeepONet ensemble for the 1-D heat equation, with FEM ground truth and an interactive demo"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "scipy>=1.10", "torch>=2.0", "fastapi>=0.110", "uvicorn>=0.27", "pydantic>=2.5"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "httpx>=0.25", "matplotlib>=3.7", "jupyter"]
+
+[tool.setuptools.packages.find]
+include = ["heat_operator*", "demo*"]
+
+[tool.setuptools.package-data]
+demo = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
